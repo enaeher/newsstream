@@ -1,6 +1,0 @@
-(in-package :newshole)
-
-(defmacro when-bind ((var test) &body body)
-  `(let ((,var ,text))
-     (when ,var
-       ,@body)))
