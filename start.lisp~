@@ -1,0 +1,21 @@
+(in-package :newshole)
+
+(defun start-polling ()
+  (sb-thread:make-thread (lambda ()
+                           (loop
+                              (parse (poll))
+                              (sleep 14400)))
+                         :name "news polling thread"))
+
+(defun start ()
+  (setf clsql:*db-auto-sync* t)
+  (clsql:enable-sql-reader-syntax)
+  (unless (clsql:probe-database *clsql-db-spec* :database-type :postgresql)
+    (initialize-empty-database *clsql-db-spec* :database-type :postgresql))
+  (clsql:connect *clsql-db-spec* :pool t :database-type :postgresql)
+  (start-polling))
+
+(defun initialize-empty-database (db-spec &key database-type)
+  (clsql:create-database db-spec :database-type database-type)
+  (clsql:with-database (clsql:*default-database* db-spec :pool t :database-type database-type)
+    (clsql:create-view-from-class 'cluster-time)))

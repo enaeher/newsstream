@@ -1,0 +1,5 @@
+(in-package :cl-usxer)
+
+(defpackage :newshole
+  (:use :common-lisp
+        :cl-user))
