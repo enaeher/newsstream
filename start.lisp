@@ -20,7 +20,8 @@
   (clsql:enable-sql-reader-syntax)
   (unless (clsql:probe-database *clsql-db-spec* :database-type :postgresql)
     (initialize-empty-database *clsql-db-spec* :database-type :postgresql))
-  (clsql:connect *clsql-db-spec* :pool t :database-type :postgresql))
+  (clsql:connect *clsql-db-spec* :pool t :database-type :postgresql)
+  (start-polling))
 
 (defun initialize-empty-database (db-spec &key database-type)
   (clsql:create-database db-spec :database-type database-type)
