@@ -49,23 +49,25 @@ tuple. FIXME."
                               (when next
                                 (elt next 1))))
                 collect current)))
-      (mapcar (lambda (cluster-time)
-                (cons (wall-time-to-x-offset (clsql:parse-timestring (elt cluster-time 0)) end-time)
-                      (quantity-to-y-offset (or (elt cluster-time 1) 0)
-                                            (elt cluster-time 2))))
-              (clsql:select ["cluster" received-time]
-                            ["inner-cluster" quantity]
+      (trim-sequence-if #'zerop 
+                        (mapcar (lambda (cluster-time)
+                                  (cons (wall-time-to-x-offset (clsql:parse-timestring (elt cluster-time 0)) end-time)
+                                        (quantity-to-y-offset (or (elt cluster-time 1) 0)
+                                                              (elt cluster-time 2))))
+                                (clsql:select ["cluster" received-time]
+                                              ["inner-cluster" quantity]
 
-                            ["(select sum(quantity) from cluster_time where received_time = \"cluster\".received_time having max(quantity) > 100)"]
-                            :from      [cluster-time "cluster"]	
-                            :left-join [cluster-time "inner-cluster"]
-                            :on        [and [= ["cluster" received-time]
-                            ["inner-cluster" received-time]]
-                            [= ["inner-cluster" cluster-id]
-                            cluster-id]]
-                            :where     [between ["cluster" received-time] start-time end-time]
-                            :group-by  '(["cluster" received-time] ["inner-cluster" quantity])
-                            :order-by  ["cluster" received-time]))))
+                                              ["(select sum(quantity) from cluster_time where received_time = \"cluster\".received_time having max(quantity) > 100)"]
+                                              :from      [cluster-time "cluster"]	
+                                              :left-join [cluster-time "inner-cluster"]
+                                              :on        [and [= ["cluster" received-time]
+                                              ["inner-cluster" received-time]]
+                                              [= ["inner-cluster" cluster-id]
+                                              cluster-id]]
+                                              :where     [between ["cluster" received-time] start-time end-time]
+                                              :group-by  '(["cluster" received-time] ["inner-cluster" quantity])
+                                              :order-by  ["cluster" received-time]))
+                        :key #'y)))
 
   (defun generate-bezier-interpolation (points)
     "See http://www.antigrain.com/research/bezier_interpolation/"
@@ -197,7 +199,7 @@ tuple. FIXME."
   (defun points-to-path (cluster-id start-point &rest points)
     (cxml:with-element "svg:path"
       (cxml:attribute "id" (format nil "~d" cluster-id))
-      (csml:attribute "class" "story")
+      (cxml:attribute "class" "story")
       (cxml:attribute "d"
                       (apply #'concatenate 
                               `(string
@@ -220,61 +222,156 @@ tuple. FIXME."
                                      :order-by (list (list [received-time] :desc))
                                      :limit 1)))))
 
+  (defun points-to-rects (cluster-id points return-points)
+    (let ((color (get-color cluster-id)))
+      (loop 
+         for (this next) on points by #'cdr
+         for (previous-this previous-next) on return-points by #'cdr
+         when (and (and this next previous-this previous-next)
+                   #-(and) (not (or (eql (y this) (y previous-this))
+                            (eql (y next) (y previous-next)))))
+         collecting (cxml:with-element "svg:line"
+                      (cxml:attribute "stroke" (format nil "#~x" color))
+                      (cxml:attribute "x1" (format nil "~,1f" (x this)))
+                      (cxml:attribute "y1" (format nil "~,2f" (/ (+ (y this) (y previous-this))
+                                                                 2)))
+                      (cxml:attribute "x2" (format nil "~,1f" (x next)))
+                      (cxml:attribute "y2" (format nil "~,2f" (/ (+ (y next) (y previous-next))
+                                                                 2)))))
+      (loop 
+         for center in points
+         for previous-center in return-points
+         collecting (cxml:with-element "svg:circle"
+                      (cxml:attribute "fill" (format nil "#~x" color))
+                      (cxml:attribute "cx" (format nil "~,1f" (x center)))
+                      (cxml:attribute "cy" (format nil "~,2f" (/ (+ (y center) (y previous-center))
+                                                                 2)))
+
+                      (cxml:attribute "r" (format nil "~,2f" (/ (- (y previous-center) (y center))
+                                                                2)))))))
+ 
+
   (defun simpler-svg-chart (stream start-time end-time)
-    (cxml:with-xml-output (cxml:make-character-stream-sink stream :indentation 2)
-      (cxml:with-namespace ("xlink" "http://www.w3.org/1999/xlink")
-        (cxml:with-namespace ("svg" "http://www.w3.org/2000/svg")
-          (cxml:with-element "svg:svg"
-            (cxml:attribute "width" "100%")
-            (cxml:attribute "height" "100%")
-            (cxml:attribute "style" "background-color: #1a1a1a; background-image: url('ephemera.png'); background-repeat: no-repeat; background-position: bottom left;")
-            (cxml:attribute "viewBox" "-300 -400 300 500")
-            (cxml:attribute "preserveAspectRatio" "xMaxYMin")
-            (cxml:attribute "version" "1.1")
-            (let ((adjusted-baseline (make-hash-table)))
-              (mapcar (lambda (cluster-id)
-                        ;; let's not pollute the DOM with empty paths...
-                        (when-bind (coordinates (get-coordinates-for-cluster cluster-id start-time end-time))
-                          (let* ((return-path (nreverse (get-adjusted-baseline coordinates adjusted-baseline)))
-                                 (return-path (cons (cons 0 (y (car return-path))) return-path))
-                                 (adjusted-coordinates (adjust-baseline coordinates adjusted-baseline)))
-                            (points-to-path cluster-id
-                                            (first adjusted-coordinates)
-                                            adjusted-coordinates
-                                            return-path)
-                            (when-bind (max-quantity
-                                        (caar (clsql:select [max [quantity]]
-                                                            :from [cluster-time]
-                                                            :where [and [= [cluster-id] cluster-id]
-                                                            [between [received-time] start-time end-time]])))
-                              (when (> max-quantity 1000)
-                                (cxml:with-element "svg:path"
-                                  (let ((left-edge (wall-time-to-x-offset start-time end-time))
-                                        (lower-left-corner (car (last return-path)))
-                                        (upper-left-corner (car adjusted-coordinates)))
-                                    (cxml:attribute "d" 
-                                                    (format nil "M ~,1f,~,1f C ~,1f,~,1f ~,1f,~,1f ~,1f,~,1f C ~,1f,~,1f ~,1f,~,1f ~,1f,~,1f"
-                                                            ;; moveto
-                                                            (- left-edge 5) (y lower-left-corner)
-                                                            ;; bottom of {
-                                                            (- left-edge 10) (y lower-left-corner)
-                                                            (- left-edge 5) (/ (+ (y upper-left-corner)
-                                                                                  (y lower-left-corner))
-                                                                               2)
-                                                            (- left-edge 10) (/ (+ (y upper-left-corner)
-                                                                                   (y lower-left-corner))
-                                                                                2)
-                                                            ;; top of {
-                                                            (- left-edge 5) (/ (+ (y upper-left-corner)
-                                                                                  (y lower-left-corner))
-                                                                               2)
-                                                            (- left-edge 10) (y upper-left-corner)
-                                                            (- left-edge 5) (y upper-left-corner))))
-                                  (cxml:attribute "stroke-width" "1")
-                                  (cxml:attribute "fill" "none")
-                                  (cxml:attribute "stroke" "white")))))))
-                      (get-clusters-in-order)))
-            (values))))))
+    (let ((sink (cxml:make-character-stream-sink stream :indentation 2)))
+      (cxml:with-xml-output sink
+          (sax:processing-instruction sink "xml-stylesheet" "type=\"text/css\" href=\"newsstream.css\"")
+        (cxml:with-namespace ("xlink" "http://www.w3.org/1999/xlink")
+          (cxml:with-namespace ("svg" "http://www.w3.org/2000/svg")
+            (cxml:with-element "svg:svg"
+              (cxml:attribute "width" "100%")
+              (cxml:attribute "height" "100%")
+              (cxml:attribute "style" "background-color: #1a1a1a; background-image: url('ephemera.png'); background-repeat: no-repeat; background-position: bottom left;")
+              (cxml:attribute "viewBox" "-300 -400 300 500")
+              (cxml:attribute "preserveAspectRatio" "xMinYMin")
+              (cxml:attribute "version" "1.1")
+              (let ((adjusted-baseline (make-hash-table)))
+                (mapcar (lambda (cluster-id)
+                          ;; let's not pollute the DOM with empty paths...
+                          (when-bind (coordinates (get-coordinates-for-cluster cluster-id start-time end-time))
+                            (let* ((return-path (get-adjusted-baseline coordinates adjusted-baseline))
+                                   (return-path (cons (cons 0 (y (car return-path))) return-path))
+                                   (adjusted-coordinates (adjust-baseline coordinates adjusted-baseline)))
+                              (points-to-path cluster-id
+                                              (first adjusted-coordinates)
+                                              adjusted-coordinates
+                                              return-path)
+                              (when-bind (max-quantity
+                                          (caar (clsql:select [max [quantity]]
+                                                              :from [cluster-time]
+                                                              :where [and [= [cluster-id] cluster-id]
+                                                              [between [received-time] start-time end-time]])))
+                                (when (> max-quantity 1000)
+                                  (cxml:with-element "svg:path"
+                                    (let ((left-edge (wall-time-to-x-offset start-time end-time))
+                                          (lower-left-corner (car (last return-path)))
+                                          (upper-left-corner (car adjusted-coordinates)))
+                                      (cxml:attribute "d" 
+                                                      (format nil "M ~,1f,~,1f C ~,1f,~,1f ~,1f,~,1f ~,1f,~,1f C ~,1f,~,1f ~,1f,~,1f ~,1f,~,1f"
+                                                              ;; moveto
+                                                              (- left-edge 5) (y lower-left-corner)
+                                                              ;; bottom of {
+                                                              (- left-edge 10) (y lower-left-corner)
+                                                              (- left-edge 5) (/ (+ (y upper-left-corner)
+                                                                                    (y lower-left-corner))
+                                                                                 2)
+                                                              (- left-edge 10) (/ (+ (y upper-left-corner)
+                                                                                     (y lower-left-corner))
+                                                                                  2)
+                                                              ;; top of {
+                                                              (- left-edge 5) (/ (+ (y upper-left-corner)
+                                                                                    (y lower-left-corner))
+                                                                                 2)
+                                                              (- left-edge 10) (y upper-left-corner)
+                                                              (- left-edge 5) (y upper-left-corner))))
+                                    (cxml:attribute "stroke-width" "1")
+                                    (cxml:attribute "fill" "none")
+                                    (cxml:attribute "stroke" "white")))))))
+                        (get-clusters-in-order)))
+              (values)))))))
+  
+  (defun simplest-svg-chart (stream start-time end-time)
+    (let ((sink (cxml:make-character-stream-sink stream :indentation 2)))
+      (cxml:with-xml-output sink
+        (sax:processing-instruction sink "xml-stylesheet" "type=\"text/css\" href=\"newsstream.css\"")
+        (cxml:with-namespace ("xlink" "http://www.w3.org/1999/xlink")
+          (cxml:with-namespace ("svg" "http://www.w3.org/2000/svg")
+            (cxml:with-element "svg:svg"
+              (cxml:attribute "viewBox" "-300 -400 300 500")
+              (cxml:attribute "preserveAspectRatio" "xMaxYMin")
+              (cxml:attribute "version" "1.1")              
+              (let ((adjusted-baseline (make-hash-table)))
+                (mapcar (lambda (cluster-id)
+                          (cxml:with-element "svg:g"
+                            (cxml:attribute "class" "story")
+                            (when-bind (coordinates (get-coordinates-for-cluster cluster-id start-time end-time))
+                              (let* ((return-path (get-adjusted-baseline coordinates adjusted-baseline))
+                                     (adjusted-coordinates (adjust-baseline coordinates adjusted-baseline)))                                
+                                (points-to-rects cluster-id                                                
+                                                adjusted-coordinates
+                                                return-path))
+                              (loop for ((title publication time)) on (clsql:select [title] [publication] [min [received-time]]
+                                                                        :from [cluster-time]
+                                                                        :where [= [cluster-id] cluster-id]
+                                                                        :group-by (list [title] [publication]))
+                                 do
+                                   (let ((units-per-day (/ 86400 *seconds-per-unit*)))
+                                     (cxml:with-element "svg:text"
+                                       (cxml:attribute "class" "story-title")
+                                       (cxml:attribute "x" (format nil "~,1f" (- (wall-time-to-x-offset (clsql:parse-timestring time) end-time)
+                                                                                 (/ units-per-day 3))))
+                                       (cxml:attribute "y" (- (+ *units-per-whole* 100)))
+                                       (let ((last-wrap-point 0))
+                                         (loop while (<= last-wrap-point (length title))
+                                            do
+                                            (cxml:with-element "svg:tspan"
+                                              (cxml:attribute "x" (format nil "~,1f" (- (wall-time-to-x-offset (clsql:parse-timestring time) end-time)
+                                                                                 (/ units-per-day 3))))
+                                              (cxml:attribute "dy" "8")
+                                              (let ((wrap-point
+                                                     (or
+                                                      (position
+                                                       #\Space title
+                                                       :from-end t
+                                                       :start last-wrap-point
+                                                       :end (min
+                                                             (length title)
+                                                             (+ last-wrap-point (floor (/ units-per-day 4)))))
+                                                      (position #\Space title :start last-wrap-point)
+                                                      (length title))))
+                                                (cxml:unescaped (subseq title last-wrap-point (min (1+ wrap-point) (length title))))
+                                                (setf last-wrap-point (1+ wrap-point))))))
+                                       (cxml:with-element "svg:tspan"
+                                         (cxml:attribute "x" (format nil "~,1f" (- (wall-time-to-x-offset (clsql:parse-timestring time) end-time)
+                                                                                 (/ units-per-day 3))))
+                                         (cxml:attribute "dy" "8")
+                                         (cxml:attribute "font-size" "5")
+                                         (cxml:text publication))))
+                                   
+                                   ))))
+                        (get-clusters-in-order)))              
+              (draw-category-labels)
+              (draw-day-labels start-time end-time)
+              (values)))))))
 
   (defun bezier-svg-chart (stream start-time end-time)
     (let ((sink (cxml:make-character-stream-sink stream :indentation 2)))
@@ -335,7 +432,7 @@ tuple. FIXME."
        for (time) in (clsql:select [distinct [received-time]]
                                    :from [cluster-time]
                                    :where [between [received-time] start-time end-time])
-       and y = (quantity-to-y-offset 1 1) ; eww
+       and y = (- *units-per-whole*)
        do
        (let* ((time (clsql:parse-timestring time))
               (x (wall-time-to-x-offset time end-time)))
@@ -346,20 +443,13 @@ tuple. FIXME."
            (cxml:attribute "font-family" "Century Gothic, sans-serif")
            (cxml:attribute "fill" "white")
            (cxml:attribute "text-anchor" "end")
-           (cxml:attribute "font-size" "7")
+           (cxml:attribute "font-size" "6")
            (cxml:text (format nil "~d ~a ~d"
                               (clsql:time-element time :day-of-month)
                               (string-downcase (clsql:month-name (clsql:time-element time :month)))
-                              (clsql:time-element time :year))))
-         (cxml:with-element "svg:line"
-           (cxml:attribute "x1" (format nil "~,1f" x))
-           (cxml:attribute "y1" (format nil "~,1f" y))
-           (cxml:attribute "x2" (format nil "~,1f" x))
-           (cxml:attribute "y2" "0")
-           (cxml:attribute "stroke" "black")
-           (cxml:attribute "stroke-width" "1"))))))
+                              (clsql:time-element time :year)))))))
 
-(defun chart-for-past-week (stream)
-  (simpler-svg-chart stream                     
-                    (clsql:parse-timestring (caar (clsql:select [max [received-time]] :from [cluster-time] :where [< [received-time] (clsql:time- (clsql:get-time) (clsql:make-duration :day 7))])))
-                    (clsql:parse-timestring (caar (clsql:select [max [received-time]] :from [cluster-time])))))
+  (defun chart-for-past-week (stream)
+    (simplest-svg-chart stream                     
+                        (clsql:parse-timestring (caar (clsql:select [max [received-time]] :from [cluster-time] :where [< [received-time] (clsql:time- (clsql:get-time) (clsql:make-duration :day 7))])))
+                        (clsql:parse-timestring (caar (clsql:select [max [received-time]] :from [cluster-time]))))))

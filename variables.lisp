@@ -9,7 +9,7 @@
 
 (defparameter *stories-per-unit* 150 "Number of stories represented by each unit in the SVG y coordinate.")
 (defparameter *units-per-whole* 250 "Number of stories represented by each unit in the SVG y coordinate.")
-(defparameter *seconds-per-unit* 750 "Number of seconds represented by each unit in the SVG x coordinate.")
+(defparameter *seconds-per-unit* 1250 "Number of seconds represented by each unit in the SVG x coordinate.")
 
 ;;
 

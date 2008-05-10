@@ -38,13 +38,13 @@
 (defun get-clusters-in-order ()
   "Retrieve a list of cluster IDs in order of first appearance in the
 Atom feed."
+  #-(and)
   (mapcar #'car (clsql:select [cluster-id]
                               :from [cluster-time]
                               :group-by [cluster-id]
                               :having [> [max [quantity]] 100]
                               :order-by (list (list [min [received-time]] :desc))))
   ;; can't make up my mind
-  #-(and)
   (delete-duplicates
    (apply #'nconc
           (loop for category in (clsql:select [distinct [category]]
