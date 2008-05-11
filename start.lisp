@@ -1,5 +1,8 @@
 (in-package :newshole)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (clsql:enable-sql-reader-syntax))
+
 (defun start-polling ()
   (sb-thread:make-thread (lambda ()
                            (loop
@@ -12,7 +15,8 @@
                                                            (clsql:time-difference now tomorrow))))
                                 
                                 (sleep (clsql:duration-reduce duration-to-sleep :second)))
-                              (parse (poll))))
+                              (parse (poll))
+                              (draw-all-charts)))
                          :name "news polling thread"))
 
 (defun start ()

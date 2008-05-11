@@ -1,12 +1,15 @@
 (in-package :newshole)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (clsql:enable-sql-reader-syntax))
+
 (clsql:def-view-class cluster-time ()
   ((cluster-id    :initarg :cluster-id
                   :reader cluster-id
                   :type integer)
    (received-time :initarg :received-time
                   :reader received-time
-                  :type clsql:wall-time)
+                  :type clsql:date)
    (quantity      :initarg :quantity
                   :initform 0
                   :reader quantity
@@ -25,12 +28,6 @@
                  :accessor category
                  :type string
                  :documentation "Just a string for now; no authority control.")))
-#-(and)
-(clsql:def-view-class cluster ()
-  ((id           :initarg :id
-                 :reader id
-                 :type integer))
-  (:documentation "Obviously useless for now, but leaving in place for future expansion."))
 
 (defun make-cluster-time (&rest rest)
   (apply #'make-instance (cons 'cluster-time rest)))
@@ -38,13 +35,6 @@
 (defun get-clusters-in-order (start-time end-time)
   "Retrieve a list of cluster IDs in order of first appearance in the
 Atom feed."
-  #-(and)
-  (mapcar #'car (clsql:select [cluster-id]
-                              :from [cluster-time]
-                              :group-by [cluster-id]
-                              :having [> [max [quantity]] 100]
-                              :order-by (list (list [min [received-time]] :desc))))
-  ;; can't make up my mind
   (delete-duplicates
    (apply #'nconc
           (loop for category in (clsql:select [distinct [category]]
@@ -57,7 +47,5 @@ Atom feed."
                                      :group-by [cluster-id]
                                      :where [and [= [category] category]
                                                  [between [received-time] start-time end-time]]
-;                                     [in [category]
-;                                     ["(SELECT category FROM cluster_time AS ct_inner WHERE ct_inner.cluster_id = cluster_time.cluster_id ORDER BY ct_inner.received_time DESC LIMIT 1)"]]]
                                      :order-by (list (list [min [received-time]] :desc))))))
    :from-end t))

@@ -1,16 +1,16 @@
 (in-package :newshole)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (clsql:enable-sql-reader-syntax))
+
 (defun poll ()
   (drakma:http-request *atom-feed-uri* :redirect nil))
 
 (defun parse (source)
-  (let ((source (cxml:make-source source))
-        ;; database writes are not instantaneous and all
-        ;; entries from the same feed should share a received_time
-        (received-time (clsql:get-time)))
+  (let ((source (cxml:make-source source)))
     (loop while (klacks:find-element source "entry")
        for cluster = (klacks:serialize-element source (cxml-xmls:make-xmls-builder))
-       do (store-entry cluster received-time))))
+       do (store-entry cluster (clsql:get-date)))))
 
 (defun store-entry (entry received-time)
   "Quick and dirty scrape to find pertinent info. -- FIXME"
