@@ -7,7 +7,6 @@
 
 ;; Scaling factors
 
-(defparameter *stories-per-unit* 150 "Number of stories represented by each unit in the SVG y coordinate.")
 (defparameter *units-per-whole* 250 "Height of the chart.")
 (defparameter *units-per-day* 69 "Width of each day.")
 
@@ -16,7 +15,7 @@
 (defparameter *category-colors* '(:business      #x530000
                                   :elections     #xe2d90b
                                   :entertainment #x5e2b50
-                                  :health        #x2b5e2b
+                                  :health        #x416101
                                   :sci/tech      #x5e4b2b
                                   :sports        #x2b5e5a
                                   :|TOP STORIES| #xea2c00 ; oof

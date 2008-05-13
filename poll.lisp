@@ -31,7 +31,8 @@
           ;; a title/publication delimiter, but living with that is easier than
           ;; writing a non-broken regexp right now.
           (ppcre:split " - " title-string)
-        (format t "~%Title: ~a~%   Publication: ~a, Link: ~a, Cluster ID: ~a, Qty: ~a, Category: ~a" title publication link id quantity category)
+        (declare (ignore rest))
+        (format t "~%Cluster ID: ~a, Qty: ~a, Category: ~a" id quantity category)
         (make-cluster-time :title title
                            :uri link
                            :publication publication

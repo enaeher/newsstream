@@ -12,7 +12,7 @@
 (defun wall-time-to-x-offset (wall-time end-time)
   "Derives an SVG x coordinate from WALL-TIME using *SECONDS-PER-UNIT*, where
 x = 0 is the current time."
-                                        ; CLSQL durations are unsigned, but the coordinate should always be negative
+  ;; CLSQL durations are unsigned, but the coordinate should always be negative
   (- (* (clsql:duration-reduce (clsql:date-difference wall-time end-time) :day) 
         *units-per-day*)))
 
@@ -84,11 +84,13 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
                                                     2))))))
 
   (defun draw-story-titles (cluster-id start-time end-time)
-    (flet ((wrap-text (text &key x-offset character-width)
+    (flet ((wrap-text (text &key x-offset character-width class unescaped)
              (let ((last-wrap-point 0))
                (loop while (<= last-wrap-point (length text))
                   do
                   (cxml:with-element "svg:tspan"
+                    (when class
+                      (cxml:attribute "class" class))
                     (cxml:attribute "x" (format nil "~,1f" x-offset))
                     (cxml:attribute "dy" "8")
                     (let ((wrap-point
@@ -102,14 +104,15 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
                                    (+ last-wrap-point character-width)))
                             (position #\Space text :start last-wrap-point)
                             (length text))))
-                      (cxml:unescaped (subseq text last-wrap-point (min (1+ wrap-point) (length text))))
+                      (funcall (if unescaped #'cxml:unescaped #'cxml:text)
+                               (subseq text last-wrap-point (min (1+ wrap-point) (length text))))
                       (setf last-wrap-point (1+ wrap-point))))))))
-      (loop for ((title publication time))
-         on (clsql:select [title] [publication] [min [received-time]]
+      (loop for ((title publication time quantity))
+         on (clsql:select [title] [publication] [min [received-time]] [quantity]
                           :from [cluster-time]
                           :where [and [= [cluster-id] cluster-id]
                           [between [received-time] start-time end-time]]
-                          :group-by (list [title] [publication]))
+                          :group-by (list [title] [publication] [quantity]))
          do
          (let ((x-offset (- (wall-time-to-x-offset (clsql:parse-datestring time) end-time)
                             (/ *units-per-day* 3)))) ; text occupies 2/3 of column width
@@ -117,12 +120,17 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
              (cxml:attribute "class" "story-title")
              (cxml:attribute "x" (format nil "~,1f" x-offset))
              (cxml:attribute "y" (- (+ *units-per-whole* 100)))
-             (wrap-text title :x-offset x-offset :character-width (floor (/ *units-per-day* 4)))
+             (wrap-text title :x-offset x-offset 
+                        :character-width (floor (/ *units-per-day* 4))
+                        :unescaped t)           
+             (wrap-text publication :x-offset x-offset
+                        :character-width (floor (/ *units-per-day* 4))
+                        :class "story-publication-attribution")
              (cxml:with-element "svg:tspan"
-               (cxml:attribute "class" "story-publication-attribution")
+               (cxml:attribute "class" "story-quantity")
                (cxml:attribute "x" (format nil "~,1f" x-offset))
-               (cxml:attribute "dy" "8")
-               (cxml:text publication)))))))
+               (cxml:attribute "dy" "12")
+               (cxml:text (format nil "~D stories" quantity))))))))
 
   (defun draw-stories (color top-points bottom-points)
     (loop 
@@ -178,6 +186,15 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
               (cxml:attribute "preserveAspectRatio" "xMidYMid")
               (cxml:attribute "version" "1.1")
 
+              ;; Adobe doesn't believe in background-color
+
+              (cxml:with-element "rect"
+                (cxml:attribute "fill" "#1a1a17")
+                (cxml:attribute "x" "-1500")
+                (cxml:attribute "y" "-1500")
+                (cxml:attribute "width" "3000")
+                (cxml:attribute "height" "3000"))
+
               ;; self-promotion
 
               (cxml:with-element "svg:a"
@@ -188,6 +205,13 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
                   (cxml:attribute "y" "-400")
                   (cxml:attribute "width" "100")
                   (cxml:attribute "height" "34")))
+
+              (cxml:with-element "svg:a"
+                (cxml:attribute "xlink:href" "http://codeanddata.com/newsstream-details")
+                (cxml:with-element "svg:text"
+                  (cxml:attribute "x" (format nil "~,1f" (- (* *units-per-day* 6.375))))
+                  (cxml:attribute "y" "-395")
+                  (cxml:text "about newsstream")))
               
               (let ((adjusted-baseline (make-hash-table)))
                 (mapcar (lambda (cluster-id)
@@ -206,15 +230,15 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
         (cxml:attribute "xlink:href" ".")
         (cxml:with-element "svg:text"
           (cxml:attribute "y" y-offset)
-          (cxml:attribute "x" (format nil "~,1f" (- (* *units-per-day* 6))))
+          (cxml:attribute "x" (format nil "~,1f" (- (* *units-per-day* 6.375))))
           (cxml:text "last seven days")))
       (loop for ((year)) on (clsql:query
                              "SELECT DISTINCT date_part ('year', received_time) FROM cluster_time"
                              :result-types 'integer)
          do
-         (incf y-offset 8)
+         (incf y-offset 10)
          (cxml:with-element "svg:text"
-           (cxml:attribute "x" (format nil "~,1f" (- (* *units-per-day* 6))))
+           (cxml:attribute "x" (format nil "~,1f" (- (* *units-per-day* 6.375))))
            (cxml:attribute "y" y-offset)
            (cxml:text (princ-to-string year)))
          (loop for ((month)) on (clsql:query
@@ -226,10 +250,10 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
             initially (cxml:with-element "svg:tspan" (cxml:attribute "dy" "-8") (cxml:text " "))
             do
             (cxml:with-element "svg:text"
-              (cxml:attribute "x" (format nil "~,1f" (+ (- (* *units-per-day* 6)) 25))) 
+              (cxml:attribute "x" (format nil "~,1f" (+ (- (* *units-per-day* 6.375)) 25))) 
               (cxml:attribute "y" y-offset)
               (cxml:text (clsql:month-name (parse-integer month))))
-            (let ((x-offset (+ (- (* *units-per-day* 6)) 50)))
+            (let ((x-offset (+ (- (* *units-per-day* 6.375)) 50)))
               (loop for (week) on (clsql:query
                                    (format nil "SELECT DISTINCT date_part ('week', received_time)
                                                   FROM cluster_time
@@ -251,14 +275,14 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
                      (cxml:with-element "svg:a"
                        (cxml:attribute "xlink:href" (remove #\- start))
                        (cxml:with-element "svg:text"                    
-                         (cxml:attribute "x" x-offset)
+                         (cxml:attribute "x" (format nil "~,1f" x-offset))
                          (cxml:attribute "y" y-offset)
                          (cxml:text (format nil "~D to ~D"
                                             (clsql:date-element (clsql:parse-datestring start)
                                                                 :day-of-month)
                                             (clsql:date-element (clsql:parse-datestring end)
                                                                 :day-of-month))))))
-                   (incf x-offset 30))))
+                   (incf x-offset 32))))
             (incf y-offset 8)))))
   (values))
 
@@ -309,11 +333,13 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
        (with-open-file (stream (merge-pathnames (format nil "~a.svg" (remove #\- start)))
                                :direction :output
                                :element-type 'character
+                               :external-format :utf-8
                                :if-exists :supersede)         
          (draw-chart stream (clsql:parse-datestring start) (clsql:parse-datestring end))))
   (with-open-file (stream (merge-pathnames "newsstream.svg")
                           :direction :output
                           :element-type 'character
+                          :external-format :utf-8
                           :if-exists :supersede)
     
     (let ((recent-times (clsql:select [distinct [received-time]]
