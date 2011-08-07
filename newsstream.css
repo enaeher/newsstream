@@ -1,0 +1,69 @@
+svg { 
+  width: 100%;
+  height: 100%;
+  background-color: #1a1a17;
+}
+
+text { 
+  font-family: 'Century Gothic', 'sans-serif';
+  fill: white;
+  font-size: 7px;  
+}
+
+.story line { 
+  stroke-width: 1;
+}
+
+.story path { 
+  stroke-width: 1;
+  fill: none;
+}
+
+.story-title { 
+  visibility: hidden;
+}
+
+.story-publication-attribution,
+.story-quantity { 
+  font-size: 6px;
+}
+
+.story circle {
+  stroke-width: 1;
+  stroke: #1a1a17;
+}
+
+.story rect { 
+  stroke: black;
+  stroke-width: 0;
+}
+
+.story line { stroke-width: .75; }
+
+.story:hover circle,
+.story:hover line,
+.story:hover path,
+.story:hover rect {
+  stroke: white;
+  stroke-width: 1;
+}
+
+.story:hover .story-title {
+  visibility: visible;  
+}
+
+.day-label { 
+  text-anchor: middle;
+}
+
+a text { 
+  fill: #ffc90b;
+}
+
+a:hover text { 
+  fill: white;
+}
+
+.archives * {
+  font-size: 6px;
+}
