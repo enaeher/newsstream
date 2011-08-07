@@ -9,11 +9,19 @@
 ;;;
 ;;; The Google News Atom feed is polled every day.
 
+;; from clsql
+
+(defvar *month-names*
+  '("" "January" "February" "March" "April" "May" "June" "July" "August"
+    "September" "October" "November" "December"))
+
+(defun month-name (month-index)
+  (nth month-index *month-names*))
+
 (defun wall-time-to-x-offset (wall-time end-time)
-  "Derives an SVG x coordinate from WALL-TIME using *SECONDS-PER-UNIT*, where
+  "Derives an SVG x coordinate from WALL-TIME using *UNITS-PER-DAY*, where
 x = 0 is the current time."
-  ;; CLSQL durations are unsigned, but the coordinate should always be negative
-  (- (* (clsql:duration-reduce (clsql:date-difference wall-time end-time) :day) 
+  (- (* (/ (simple-date::millisecs (simple-date:time-subtract wall-time end-time)) 86400000) 
         *units-per-day*)))
 
 (defun quantity-to-y-offset (quantity &optional total)
@@ -29,34 +37,34 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
     (trim-sequence-if
      #'zerop 
      (mapcar (lambda (cluster-time)
-               (cons (wall-time-to-x-offset (clsql:parse-datestring (elt cluster-time 0)) end-time)
+               (cons (wall-time-to-x-offset (elt cluster-time 0) end-time)
                      (quantity-to-y-offset (or (elt cluster-time 1) 0)
                                            (elt cluster-time 2))))
-             (clsql:select ["cluster" received-time]
-                           ["inner-cluster" quantity]
-                           ["(select sum(quantity) from cluster_time where received_time = \"cluster\".received_time)"]
-                           :from      [cluster-time "cluster"]	
-                           :left-join [cluster-time "inner-cluster"]
-                           :on        [and [= ["cluster" received-time]
-                           ["inner-cluster" received-time]]
-                           [= ["inner-cluster" cluster-id]
-                           cluster-id]]
-                           :where     [between ["cluster" received-time] start-time end-time]
-                           :group-by  '(["cluster" received-time] ["inner-cluster" quantity])
-                           :order-by  ["cluster" received-time]))
-                      :key #'y))  
+	     (pomo:query
+	      (:order-by
+	       (:select 'cluster.received-time
+			'inner-cluster.quantity
+			(:select (:sum 'quantity)
+				 :from 'cluster-time
+				 :where (:= 'received-time 'cluster.received-time))
+			:from (:as 'cluster-time 'cluster)
+			:left-join (:as 'cluster-time 'inner-cluster)
+			:on (:and (:= 'cluster.received-time 'inner-cluster.received-time)
+				  (:= 'inner-cluster.cluster-id cluster-id))
+			:where (:between 'cluster.received-time start-time end-time)
+			:group-by 'cluster.received-time 'inner-cluster.quantity)
+	       'cluster.received-time)))
+     :key #'y))  
 
   (let (lightp)
     (defun get-color (cluster-id)
-      (let ((cluster (caar (clsql:select 'cluster-time
-                                         :where [= [cluster-time cluster-id] cluster-id]
-                                         :order-by '(([received-time] :desc))
-                                         :limit 1))))
+      (let ((cluster (car (pomo:select-dao 'cluster-time (:= 'cluster-id cluster-id) 
+					   (:desc 'received-time)))))
         (setf lightp (null lightp))
         (if-bind (color (getf *category-colors*
                               (intern (string-upcase (category cluster)) :keyword)))
-            (+ color (if lightp #x151515 0)) ; alternate lighter and darker 
-            "black"))))
+		 (+ color (if lightp #x151515 0)) ; alternate lighter and darker 
+		 "black"))))
 
   (defun adjust-baseline (coordinates adjusted-baseline)
     "with side effects"
@@ -108,21 +116,20 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
                                (subseq text last-wrap-point (min (1+ wrap-point) (length text))))
                       (setf last-wrap-point (1+ wrap-point))))))))
       (loop for ((title publication time quantity))
-         on (clsql:select [title] [publication] [min [received-time]] [quantity]
-                          :from [cluster-time]
-                          :where [and [= [cluster-id] cluster-id]
-                          [between [received-time] start-time end-time]]
-                          :group-by (list [title] [publication] [quantity]))
+         on (pomo:query (:select 'title 'publication (:min 'received-time) 'quantity
+				 :from 'cluster-time
+				 :where (:and (:= 'cluster-id cluster-id)
+					      (:between 'received-time start-time end-time))
+				 :group-by 'title 'publication 'quantity)) 
          do
-         (let ((x-offset (- (wall-time-to-x-offset (clsql:parse-datestring time) end-time)
+         (let ((x-offset (- (wall-time-to-x-offset time end-time)
                             (/ *units-per-day* 3)))) ; text occupies 2/3 of column width
            (cxml:with-element "svg:text"
              (cxml:attribute "class" "story-title")
              (cxml:attribute "x" (format nil "~,1f" x-offset))
              (cxml:attribute "y" (- (+ *units-per-whole* 100)))
              (wrap-text title :x-offset x-offset 
-                        :character-width (floor (/ *units-per-day* 4))
-                        :unescaped t)           
+                        :character-width (floor (/ *units-per-day* 4)))
              (wrap-text publication :x-offset x-offset
                         :character-width (floor (/ *units-per-day* 4))
                         :class "story-publication-attribution")
@@ -152,10 +159,12 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
   (cxml:with-element "svg:a"
     (cxml:attribute "xlink:href"
                     (caar
-                     (clsql:select [uri]
-                                   :from [cluster-time]
-                                   :where [= [cluster-id] cluster-id]
-                                   :order-by (list (list [received-time] :desc)) :limit 1)))
+		     (pomo:query (:limit (:order-by
+					  (:select 'uri
+						   :from 'cluster-time
+						   :where (:= 'cluster-id cluster-id))
+					  (:desc 'received-time))
+					 1))))
     (cxml:with-element "svg:g"
       (cxml:attribute "class" "story")
       (when-bind (coordinates (get-coordinates-for-cluster cluster-id start-time end-time))
@@ -171,7 +180,7 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
         (draw-story-titles cluster-id start-time end-time)))))
  
   (defun draw-chart (stream start-time end-time)
-    (let ((sink (cxml:make-character-stream-sink stream)))
+    (let ((sink (cxml:make-character-stream-sink stream :indentation 2)))
       (cxml:with-xml-output sink
         (sax:processing-instruction sink "xml-stylesheet" "type=\"text/css\" href=\"newsstream.css\"")
         (cxml:with-namespace ("xlink" "http://www.w3.org/1999/xlink")
@@ -232,58 +241,60 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
           (cxml:attribute "y" y-offset)
           (cxml:attribute "x" (format nil "~,1f" (- (* *units-per-day* 6.375))))
           (cxml:text "last seven days")))
-      (loop for ((year)) on (clsql:query
-                             "SELECT DISTINCT date_part ('year', received_time) FROM cluster_time"
-                             :result-types 'integer)
+      (loop for ((year)) on (pomo:query
+                             "SELECT DISTINCT date_part ('year', received_time) FROM cluster_time")
          do
-         (incf y-offset 10)
-         (cxml:with-element "svg:text"
-           (cxml:attribute "x" (format nil "~,1f" (- (* *units-per-day* 6.375))))
-           (cxml:attribute "y" y-offset)
-           (cxml:text (princ-to-string year)))
-         (loop for ((month)) on (clsql:query
-                                 (format nil "SELECT DISTINCT date_part ('month', received_time)
+	 (let ((year (floor year)))
+	   (incf y-offset 10)
+	   (cxml:with-element "svg:text"
+	     (cxml:attribute "x" (format nil "~,1f" (- (* *units-per-day* 6.375))))
+	     (cxml:attribute "y" y-offset)
+	     (cxml:text (princ-to-string year)))
+	   (loop for ((month)) on (pomo:query
+				   (format nil "SELECT DISTINCT date_part ('month', received_time)
                                                 FROM cluster_time
                                                WHERE date_part ('year', received_time) = ~D
-                                            ORDER BY date_part ('month', received_time) DESC" year)
-                                 :result-types 'integer)
-            initially (cxml:with-element "svg:tspan" (cxml:attribute "dy" "-8") (cxml:text " "))
-            do
-            (cxml:with-element "svg:text"
-              (cxml:attribute "x" (format nil "~,1f" (+ (- (* *units-per-day* 6.375)) 25))) 
-              (cxml:attribute "y" y-offset)
-              (cxml:text (clsql:month-name (parse-integer month))))
-            (let ((x-offset (+ (- (* *units-per-day* 6.375)) 50)))
-              (loop for (week) on (clsql:query
-                                   (format nil "SELECT DISTINCT date_part ('week', received_time)
+                                            ORDER BY date_part ('month', received_time) DESC" year))
+	      initially (cxml:with-element "svg:tspan" (cxml:attribute "dy" "-8") (cxml:text " "))
+	      do
+	      (let ((month (floor month)))
+		(cxml:with-element "svg:text"
+		  (cxml:attribute "x" (format nil "~,1f" (+ (- (* *units-per-day* 6.375)) 25))) 
+		  (cxml:attribute "y" y-offset)
+		  (cxml:text (month-name month)))
+		(let ((x-offset (+ (- (* *units-per-day* 6.375)) 50)))
+		  (loop for ((week)) on (pomo:query
+					 (format nil "SELECT DISTINCT date_part ('week', received_time)
                                                   FROM cluster_time
-                                                 WHERE date_part ('month', received_time) = ~d" month)
-                                   :result-types 'integer)
-                 do
-                 (when-bind (week-span
-                             (clsql:query
-                              (format nil
-                                      "SELECT min (received_time), max (received_time)
+                                                 WHERE date_part ('month', received_time) = ~d" month))
+		     do
+		     (let ((week (floor week)))
+		       (when-bind (week-span
+				   (pomo:query
+				    (format nil
+					    "SELECT min (received_time), max (received_time)
                                      FROM cluster_time
                                     WHERE date_part ('year', received_time) = ~d
                                       AND date_part ('week', received_time) = ~d
                                    HAVING date_part ('month', min (received_time)) = ~d"
-                                      year week month)))
+					    year week month)))
                      
-                   (destructuring-bind ((start end))
-                       week-span
-                     (cxml:with-element "svg:a"
-                       (cxml:attribute "xlink:href" (remove #\- start))
-                       (cxml:with-element "svg:text"                    
-                         (cxml:attribute "x" (format nil "~,1f" x-offset))
-                         (cxml:attribute "y" y-offset)
-                         (cxml:text (format nil "~D to ~D"
-                                            (clsql:date-element (clsql:parse-datestring start)
-                                                                :day-of-month)
-                                            (clsql:date-element (clsql:parse-datestring end)
-                                                                :day-of-month))))))
-                   (incf x-offset 32))))
-            (incf y-offset 8)))))
+			 (destructuring-bind ((start end))
+			     week-span
+			   (cxml:with-element "svg:a"
+			     (cxml:attribute "xlink:href" (date-to-iso start))
+			     (cxml:with-element "svg:text"                    
+			       (cxml:attribute "x" (format nil "~,1f" x-offset))
+			       (cxml:attribute "y" y-offset)
+			       (cxml:text (format nil "~D to ~D"
+						  (multiple-value-bind (y m d)
+						      (simple-date:decode-date start)
+						    d)
+						  (multiple-value-bind (y m d)
+						      (simple-date:decode-date end)
+						    d))))))
+			 (incf x-offset 32))))))
+	      (incf y-offset 8))))))
   (values))
 
   (defun draw-category-labels ()
@@ -308,45 +319,56 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
 
   (defun draw-day-labels (start-time end-time)
     (loop
-       for (time) in (clsql:select [distinct [received-time]]
-                                   :from [cluster-time]
-                                   :where [between [received-time] start-time end-time])
+       for (time) in (pomo:query (:select (:distinct 'received-time)
+					  :from 'cluster-time
+					  :where (:between 'received-time start-time end-time)))
        and y = (- *units-per-whole*)
        do
-       (let* ((time (clsql:parse-datestring time))
-              (x (wall-time-to-x-offset time end-time)))
+       (let ((x (wall-time-to-x-offset time end-time)))
          (cxml:with-element "svg:text"
            (cxml:attribute "x" (format nil "~,1f" x))
            (cxml:attribute "y" (format nil "~,1f" (- y 5)))
            (cxml:attribute "class" "day-label")
-           (cxml:text (format nil "~d ~a ~d"
-                              (clsql:date-element time :day-of-month)
-                              (string-downcase (clsql:month-name (clsql:date-element time :month)))
-                              (clsql:date-element time :year))))))
+           (cxml:text (multiple-value-bind (y m d)
+			  (simple-date:decode-date time)
+			(format nil "~d ~a ~d" (month-name m) d y))))))
     (values)))
+
+(defun date-to-iso (date)
+  (multiple-value-bind (y m d)
+      (simple-date:decode-date date)
+    (format nil "~4,'0d~2,'0d~2,'0d" y m d)))
 
 (defun draw-all-charts ()
   (loop for ((start end)) on
-       (clsql:query "SELECT min(received_time), max(received_time)
+       (pomo:query "SELECT min(received_time), max(received_time)
                        FROM cluster_time GROUP BY date_part ('week', received_time)")
        do
-       (with-open-file (stream (merge-pathnames (format nil "~a.svg" (remove #\- start)))
+       (with-open-file (stream (merge-pathnames (format nil "~a.svg" (date-to-iso start)))
                                :direction :output
                                :element-type 'character
                                :external-format :utf-8
-                               :if-exists :supersede)         
-         (draw-chart stream (clsql:parse-datestring start) (clsql:parse-datestring end))))
+                               :if-exists :supersede)
+         (draw-chart stream start end)))
   (with-open-file (stream (merge-pathnames "newsstream.svg")
                           :direction :output
                           :element-type 'character
                           :external-format :utf-8
                           :if-exists :supersede)
     
-    (let ((recent-times (clsql:select [distinct [received-time]]
-                                      :from [cluster-time]
-                                      :order-by (list (list [received-time] :desc))
-                                      :limit 7)))
-      (draw-chart stream
-                  (clsql:parse-datestring (caar (last recent-times)))
-                  (clsql:parse-datestring (caar recent-times)))))
+    (let ((recent-times
+	   (pomo:query (:limit
+			(:order-by
+			 (:select 'received-time
+				  :from 'cluster-time
+				  :where (:> 'received-time
+					     (simple-date:time-subtract
+					      (simple-date:universal-time-to-timestamp (get-universal-time))
+					      (simple-date:encode-interval :day 7))))
+			 (:desc 'received-time))
+			7))))
+      (when recent-times
+        (draw-chart stream
+                    (caar (last recent-times))
+                    (caar recent-times)))))
   (values))

@@ -1,16 +1,15 @@
 (in-package :newshole)
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (clsql:enable-sql-reader-syntax))
-
 (defun poll ()
-  (drakma:http-request *atom-feed-uri* :redirect nil))
+  (loop for uri in *atom-feed-uris*
+       do
+       (parse (drakma:http-request uri :redirect nil))))
 
 (defun parse (source)
   (let ((source (cxml:make-source source)))
     (loop while (klacks:find-element source "entry")
        for cluster = (klacks:serialize-element source (cxml-xmls:make-xmls-builder))
-       do (store-entry cluster (clsql:get-date)))))
+       do (store-entry cluster (simple-date:universal-time-to-timestamp (get-universal-time))))))
 
 (defun store-entry (entry received-time)
   "Quick and dirty scrape to find pertinent info. -- FIXME"
@@ -25,7 +24,7 @@
                  (parse-integer quantity :radix 10))))
            (scrape-cluster-id (content)
              (ppcre:register-groups-bind (cluster-id)
-                 ("ncl=([^&]*)" content)
+                 ("ncl=([^&\"]*)" content)
                cluster-id)))
       (let* ((title-string (cdr (assoc "title" entry :test #'string=)))
              (link         (car (cdaddr (assoc "link" entry :test #'string=))))
