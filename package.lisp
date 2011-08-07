@@ -2,4 +2,5 @@
 
 (defpackage :newshole
   (:use :common-lisp
-        :cl-user))
+        :cl-user)
+  (:export :start))
