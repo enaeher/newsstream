@@ -1,0 +1,4 @@
+DirectoryIndex newsstream.svg
+
+RewriteEngine On
+RewriteRule ^([a-z0-9]+)$ $1.svg
