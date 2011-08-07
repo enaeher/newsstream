@@ -1,0 +1,2 @@
+(:db-spec ("newsstream" "newsstream" "tabesce" "localhost")
+ :default-pathname #P"/home/newsstream/srv-newsstream/")
