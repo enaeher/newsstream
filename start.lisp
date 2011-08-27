@@ -1,8 +1,10 @@
 (in-package :newshole)
 
-(defun start ()
+(defun configure ()
   (load-configuration)
-  (apply #'pomo:connect-toplevel *pomo-db-spec*)
+  (apply #'pomo:connect-toplevel *pomo-db-spec*))
+
+(defun begin ()
   (poll)
   (draw-all-charts))
 

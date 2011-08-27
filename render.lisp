@@ -37,9 +37,11 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
     (trim-sequence-if
      #'zerop 
      (mapcar (lambda (cluster-time)
-               (cons (wall-time-to-x-offset (elt cluster-time 0) end-time)
-                     (quantity-to-y-offset (or (elt cluster-time 1) 0)
-                                           (elt cluster-time 2))))
+	       (destructuring-bind (time qty total)
+		   cluster-time
+		 (cons (wall-time-to-x-offset time end-time)
+		       (quantity-to-y-offset (or (pomo:coalesce qty) 0)
+					     total))))
 	     (pomo:query
 	      (:order-by
 	       (:select 'cluster.received-time
