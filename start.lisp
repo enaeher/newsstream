@@ -8,3 +8,4 @@
   (poll)
   (draw-all-charts))
 
+(pushnew 'configure sb-ext:*init-hooks*)
