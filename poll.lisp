@@ -22,16 +22,16 @@
                  ("all ([0-9]+) news articles" (ppcre:regex-replace-all "," content ""))
                (when quantity
                  (parse-integer quantity :radix 10))))
-           (scrape-cluster-id (content)
+           (scrape-cluster-id (id)
              (ppcre:register-groups-bind (cluster-id)
-                 ("ncl=([^&\"]*)" content)
+                 ("cluster=([^&\"]*)" id)
                cluster-id)))
       (let* ((title-string (cdr (assoc "title" entry :test #'string=)))
              (link         (car (cdaddr (assoc "link" entry :test #'string=))))
              (category (cadadr (assoc "category" entry :test #'string=)))
              (content (cdr (assoc "content" entry :test #'string=)))
              (quantity (scrape-quantity content))
-             (id (scrape-cluster-id content)))
+             (id (scrape-cluster-id (cdr (assoc "id" entry :test #'string=)))))
         (destructuring-bind (title publication &rest rest)
             ;; this will break if a title includes the string " - " as other than
             ;; a title/publication delimiter, but living with that is easier than
