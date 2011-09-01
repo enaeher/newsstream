@@ -40,12 +40,14 @@ text {
 
 .story line { stroke-width: .75; }
 
-.story:hover circle,
 .story:hover line,
-.story:hover path,
-.story:hover rect {
+.story:hover path {
   stroke: white;
-  stroke-width: 1;
+  stroke-width: 2;
+}
+
+.story:hover rect {
+  fill: white;
 }
 
 .story:hover .story-title {

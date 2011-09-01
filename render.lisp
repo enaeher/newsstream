@@ -21,8 +21,8 @@
 (defun wall-time-to-x-offset (wall-time end-time)
   "Derives an SVG x coordinate from WALL-TIME using *UNITS-PER-DAY*, where
 x = 0 is the current time."
-  (- (* (/ (simple-date::millisecs (simple-date:time-subtract wall-time end-time)) 86400000) 
-        *units-per-day*)))
+  (* (/ (simple-date::millisecs (simple-date:time-subtract wall-time end-time)) 86400000) 
+     *units-per-day*))
 
 (defun quantity-to-y-offset (quantity &optional total)
   "Derives an SVG y coordinate from QUANTITY using *STORIES-PER-UNIT*."
@@ -84,14 +84,25 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
        for (previous-this previous-next) on bottom-points by #'cdr
        when (and this next previous-this previous-next)
        do
-       (cxml:with-element "svg:line"
-         (cxml:attribute "stroke" (format nil "#~x" color))
-         (cxml:attribute "x1" (format nil "~,1f" (+ 15 (x this))))
-         (cxml:attribute "y1" (format nil "~,2f" (/ (+ (y this) (y previous-this))
-                                                    2)))
-         (cxml:attribute "x2" (format nil "~,1f" (- (x next) 15)))
-         (cxml:attribute "y2" (format nil "~,2f" (/ (+ (y next) (y previous-next))
-                                                    2))))))
+       (let* ((left-edge-x (+ (/ *story-width* 2) (x this)))
+	      (right-edge-x (- (x next) (/ *story-width* 2)))
+	      (left-height-y (/ (+ (y this) (y previous-this)) 2))
+	      (right-height-y (/ (+ (y next) (y previous-next)) 2))
+	      (midpoint-x (- right-edge-x (/ (- right-edge-x left-edge-x) 2))))
+	 (cxml:with-element "svg:path"
+	   (cxml:attribute "stroke" (format nil "#~x" color))
+	   (cxml:attribute "d" (format nil "M ~,2f ~,2f C ~,2f ~,2f ~,2f ~,2f ~,2f ~,2f"
+				       left-edge-x
+				       left-height-y
+				       
+				       midpoint-x
+				       left-height-y
+
+				       midpoint-x
+				       right-height-y
+
+				       right-edge-x
+				       right-height-y))))))
 
   (defun draw-story-titles (cluster-id start-time end-time)
     (flet ((wrap-text (text &key x-offset character-width class unescaped)
@@ -148,11 +159,11 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
        do
        (cxml:with-element "svg:rect"
          (cxml:attribute "fill" (format nil "#~x" color))
-         (cxml:attribute "x" (format nil "~,1f" (- (x top) 15)))
+         (cxml:attribute "x" (format nil "~,1f" (- (x top) (/ *story-width* 2))))
          (cxml:attribute "y" (format nil "~,1f" (y top)))
-         (cxml:attribute "width" "30")
-         (cxml:attribute "rx" "1")
-         (cxml:attribute "ry" "30")
+         (cxml:attribute "width" *story-width*)
+         (cxml:attribute "rx" 1)
+         (cxml:attribute "ry" *story-width*)
          (cxml:attribute "height"
                          (format nil "~,1f"
                                  (- (y bottom) (y top) .5))))))
@@ -291,9 +302,11 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
 			       (cxml:text (format nil "~D to ~D"
 						  (multiple-value-bind (y m d)
 						      (simple-date:decode-date start)
+						    (declare (ignore y m))
 						    d)
 						  (multiple-value-bind (y m d)
 						      (simple-date:decode-date end)
+						    (declare (ignore y m))
 						    d))))))
 			 (incf x-offset 32))))))
 	      (incf y-offset 8))))))
@@ -311,7 +324,7 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
          (cxml:attribute "x" iterator)
          (cxml:attribute "y" 20)
          (cxml:attribute "rx" "1")
-         (cxml:attribute "ry" "30"))
+         (cxml:attribute "ry" *story-width*))
        (cxml:with-element "svg:text"
          (cxml:attribute "x" iterator)
          (cxml:attribute "y" 37)

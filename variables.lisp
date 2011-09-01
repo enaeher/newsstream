@@ -17,7 +17,7 @@
 
 (defvar *units-per-whole* 250 "Height of the chart.")
 (defvar *units-per-day* 69 "Width of each day.")
-
+(defvar *story-width* 30 "width of story (within day)")
 ;;
 
 (defvar *category-colors* '(:business      #x530000
