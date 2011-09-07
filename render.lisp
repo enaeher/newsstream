@@ -25,8 +25,8 @@ x = 0 is the current time."
      *units-per-day*))
 
 (defun quantity-to-y-offset (quantity &optional total)
-  "Derives an SVG y coordinate from QUANTITY using *STORIES-PER-UNIT*."
-  (- (* (/ quantity total) *units-per-whole*)))
+    "Derives an SVG y coordinate from QUANTITY using *STORIES-PER-UNIT*."
+    (- (* (/ quantity total) *units-per-whole*)))
 
 (flet ((x (point) (car point)) ; to make things a little easier to read....
        (y (point) (cdr point)))
@@ -46,9 +46,13 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
 	      (:order-by
 	       (:select 'cluster.received-time
 			'inner-cluster.quantity
-			(:select (:sum 'quantity)
-				 :from 'cluster-time
-				 :where (:= 'received-time 'cluster.received-time))
+			(:select (:sum 'unique_clusters.quantity)
+			       :from (:as (:select 'cluster-id
+						   'quantity
+						   :distinct
+						   :from 'cluster-time
+						   :where (:= 'received-time 'cluster.received-time))
+					  'unique_clusters))
 			:from (:as 'cluster-time 'cluster)
 			:left-join (:as 'cluster-time 'inner-cluster)
 			:on (:and (:= 'cluster.received-time 'inner-cluster.received-time)
@@ -65,8 +69,8 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
         (setf lightp (null lightp))
         (if-bind (color (getf *category-colors*
                               (intern (string-upcase (category cluster)) :keyword)))
-		 (+ color (if lightp #x151515 0)) ; alternate lighter and darker 
-		 "black"))))
+	    (+ color (if lightp #x151515 0)) ; alternate lighter and darker 
+	  "black"))))
 
   (defun adjust-baseline (coordinates adjusted-baseline)
     "with side effects"
@@ -168,29 +172,29 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
                          (format nil "~,1f"
                                  (- (y bottom) (y top) .5))))))
 
-(defun draw-cluster (cluster-id start-time end-time adjusted-baseline)
-  (cxml:with-element "svg:a"
-    (cxml:attribute "xlink:href"
-                    (caar
-		     (pomo:query (:limit (:order-by
-					  (:select 'uri
-						   :from 'cluster-time
-						   :where (:= 'cluster-id cluster-id))
-					  (:desc 'received-time))
-					 1))))
-    (cxml:with-element "svg:g"
-      (cxml:attribute "class" "story")
-      (when-bind (coordinates (get-coordinates-for-cluster cluster-id start-time end-time))
-        (let* ((return-path (get-adjusted-baseline coordinates adjusted-baseline))
-               (adjusted-coordinates (adjust-baseline coordinates adjusted-baseline)))
-          (let ((color (get-color cluster-id)))
-            (draw-stories color
-                          adjusted-coordinates
-                          return-path)
-            (draw-connecting-lines color
-                                   adjusted-coordinates
-                                   return-path)))
-        (draw-story-titles cluster-id start-time end-time)))))
+  (defun draw-cluster (cluster-id start-time end-time adjusted-baseline)
+    (cxml:with-element "svg:a"
+      (cxml:attribute "xlink:href"
+		      (caar
+		       (pomo:query (:limit (:order-by
+					    (:select 'uri
+						     :from 'cluster-time
+						     :where (:= 'cluster-id cluster-id))
+					    (:desc 'received-time))
+					   1))))
+      (cxml:with-element "svg:g"
+	(cxml:attribute "class" "story")
+	(when-bind (coordinates (get-coordinates-for-cluster cluster-id start-time end-time))
+	  (let* ((return-path (get-adjusted-baseline coordinates adjusted-baseline))
+		 (adjusted-coordinates (adjust-baseline coordinates adjusted-baseline)))
+	    (let ((color (get-color cluster-id)))
+	      (draw-stories color
+			    adjusted-coordinates
+			    return-path)
+	      (draw-connecting-lines color
+				     adjusted-coordinates
+				     return-path)))
+	  (draw-story-titles cluster-id start-time end-time)))))
  
   (defun draw-chart (stream start-time end-time)
     (let ((sink (cxml:make-character-stream-sink stream :indentation 2)))
@@ -244,73 +248,73 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
               (draw-archive-links)
               (values)))))))
 
-(defun draw-archive-links ()
-  (cxml:with-element "svg:g"
-    (cxml:attribute "class" "archives")
-    (let ((y-offset 20))
-      (cxml:with-element "svg:a"
-        (cxml:attribute "xlink:href" ".")
-        (cxml:with-element "svg:text"
-          (cxml:attribute "y" y-offset)
-          (cxml:attribute "x" (format nil "~,1f" (- (* *units-per-day* 6.375))))
-          (cxml:text "last seven days")))
-      (loop for ((year)) on (pomo:query
-                             "SELECT DISTINCT date_part ('year', received_time) FROM cluster_time")
-         do
-	 (let ((year (floor year)))
-	   (incf y-offset 10)
-	   (cxml:with-element "svg:text"
-	     (cxml:attribute "x" (format nil "~,1f" (- (* *units-per-day* 6.375))))
-	     (cxml:attribute "y" y-offset)
-	     (cxml:text (princ-to-string year)))
-	   (loop for ((month)) on (pomo:query
-				   (format nil "SELECT DISTINCT date_part ('month', received_time)
+  (defun draw-archive-links ()
+    (cxml:with-element "svg:g"
+      (cxml:attribute "class" "archives")
+      (let ((y-offset 20))
+	(cxml:with-element "svg:a"
+	  (cxml:attribute "xlink:href" ".")
+	  (cxml:with-element "svg:text"
+	    (cxml:attribute "y" y-offset)
+	    (cxml:attribute "x" (format nil "~,1f" (- (* *units-per-day* 6.375))))
+	    (cxml:text "last seven days")))
+	(loop for ((year)) on (pomo:query
+			       "SELECT DISTINCT date_part ('year', received_time) FROM cluster_time")
+	   do
+	   (let ((year (floor year)))
+	     (incf y-offset 10)
+	     (cxml:with-element "svg:text"
+	       (cxml:attribute "x" (format nil "~,1f" (- (* *units-per-day* 6.375))))
+	       (cxml:attribute "y" y-offset)
+	       (cxml:text (princ-to-string year)))
+	     (loop for ((month)) on (pomo:query
+				     (format nil "SELECT DISTINCT date_part ('month', received_time)
                                                 FROM cluster_time
                                                WHERE date_part ('year', received_time) = ~D
                                             ORDER BY date_part ('month', received_time) DESC" year))
-	      initially (cxml:with-element "svg:tspan" (cxml:attribute "dy" "-8") (cxml:text " "))
-	      do
-	      (let ((month (floor month)))
-		(cxml:with-element "svg:text"
-		  (cxml:attribute "x" (format nil "~,1f" (+ (- (* *units-per-day* 6.375)) 25))) 
-		  (cxml:attribute "y" y-offset)
-		  (cxml:text (month-name month)))
-		(let ((x-offset (+ (- (* *units-per-day* 6.375)) 50)))
-		  (loop for ((week)) on (pomo:query
-					 (format nil "SELECT DISTINCT date_part ('week', received_time)
+		initially (cxml:with-element "svg:tspan" (cxml:attribute "dy" "-8") (cxml:text " "))
+		do
+		(let ((month (floor month)))
+		  (cxml:with-element "svg:text"
+		    (cxml:attribute "x" (format nil "~,1f" (+ (- (* *units-per-day* 6.375)) 25))) 
+		    (cxml:attribute "y" y-offset)
+		    (cxml:text (month-name month)))
+		  (let ((x-offset (+ (- (* *units-per-day* 6.375)) 50)))
+		    (loop for ((week)) on (pomo:query
+					   (format nil "SELECT DISTINCT date_part ('week', received_time)
                                                   FROM cluster_time
                                                  WHERE date_part ('month', received_time) = ~d" month))
-		     do
-		     (let ((week (floor week)))
-		       (when-bind (week-span
-				   (pomo:query
-				    (format nil
-					    "SELECT min (received_time), max (received_time)
+		       do
+		       (let ((week (floor week)))
+			 (when-bind (week-span
+				     (pomo:query
+				      (format nil
+					      "SELECT min (received_time), max (received_time)
                                      FROM cluster_time
                                     WHERE date_part ('year', received_time) = ~d
                                       AND date_part ('week', received_time) = ~d
                                    HAVING date_part ('month', min (received_time)) = ~d"
-					    year week month)))
+					      year week month)))
                      
-			 (destructuring-bind ((start end))
-			     week-span
-			   (cxml:with-element "svg:a"
-			     (cxml:attribute "xlink:href" (date-to-iso start))
-			     (cxml:with-element "svg:text"                    
-			       (cxml:attribute "x" (format nil "~,1f" x-offset))
-			       (cxml:attribute "y" y-offset)
-			       (cxml:text (format nil "~D to ~D"
-						  (multiple-value-bind (y m d)
-						      (simple-date:decode-date start)
-						    (declare (ignore y m))
-						    d)
-						  (multiple-value-bind (y m d)
-						      (simple-date:decode-date end)
-						    (declare (ignore y m))
-						    d))))))
-			 (incf x-offset 32))))))
-	      (incf y-offset 8))))))
-  (values))
+			   (destructuring-bind ((start end))
+			       week-span
+			     (cxml:with-element "svg:a"
+			       (cxml:attribute "xlink:href" (date-to-iso start))
+			       (cxml:with-element "svg:text"                    
+				 (cxml:attribute "x" (format nil "~,1f" x-offset))
+				 (cxml:attribute "y" y-offset)
+				 (cxml:text (format nil "~D to ~D"
+						    (multiple-value-bind (y m d)
+							(simple-date:decode-date start)
+						      (declare (ignore y m))
+						      d)
+						    (multiple-value-bind (y m d)
+							(simple-date:decode-date end)
+						      (declare (ignore y m))
+						      d))))))
+			   (incf x-offset 32))))))
+		(incf y-offset 8))))))
+    (values))
 
   (defun draw-category-labels ()
     (loop
@@ -355,6 +359,7 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
     (format nil "~4,'0d~2,'0d~2,'0d" y m d)))
 
 (defun draw-all-charts ()
+  ;; draw a chart for each week
   (loop for ((start end)) on
        (pomo:query "SELECT min(received_time), max(received_time)
                        FROM cluster_time GROUP BY date_part ('week', received_time)")
@@ -365,25 +370,19 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
                                :external-format :utf-8
                                :if-exists :supersede)
          (draw-chart stream start end)))
+  ;; draw the main chart showing the last 7 days
   (with-open-file (stream (merge-pathnames "newsstream.svg")
                           :direction :output
                           :element-type 'character
                           :external-format :utf-8
                           :if-exists :supersede)
     
-    (let ((recent-times
-	   (pomo:query (:limit
-			(:order-by
-			 (:select 'received-time
-				  :from 'cluster-time
-				  :where (:> 'received-time
-					     (simple-date:time-subtract
-					      (simple-date:universal-time-to-timestamp (get-universal-time))
-					      (simple-date:encode-interval :day 7))))
-			 (:desc 'received-time))
-			7))))
-      (when recent-times
-        (draw-chart stream
-                    (caar (last recent-times))
-                    (caar recent-times)))))
+    (let ((most-recent-time (pomo:query (:select (:max 'received-time)
+						 :from 'cluster-time)
+					:single)))
+      (draw-chart stream
+		  (simple-date:time-subtract most-recent-time
+					     (simple-date:encode-interval :day 6))
+		  most-recent-time
+		  )))
   (values))
