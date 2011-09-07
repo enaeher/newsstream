@@ -25,7 +25,7 @@
 			    :health        #x416101
 			    :sci/tech      #x5e4b2b
 			    :sports        #x2b5e5a
-			    :u.s.          #xe2d90b
 			    :nation        #xe2d90b
-			    :world         #xcbca97)
+; :world         #xcbca97
+			    :world         #xff4155)
   "Color values for cluster categories.")
