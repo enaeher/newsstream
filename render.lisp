@@ -279,7 +279,7 @@ y offsets for each occurrence of CLUSTER-ID between START-TIME and END-TIME."
 		    (cxml:attribute "x" (format nil "~,1f" (+ (- (* *units-per-day* 6.375)) 25))) 
 		    (cxml:attribute "y" y-offset)
 		    (cxml:text (month-name month)))
-		  (let ((x-offset (+ (- (* *units-per-day* 6.375)) 150)))
+		  (let ((x-offset (+ (- (* *units-per-day* 6.375)) 100)))
 		    (loop for ((week)) on (pomo:query
 					   (format nil "SELECT DISTINCT date_part ('week', received_time)
                                                   FROM cluster_time
