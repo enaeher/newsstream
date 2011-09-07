@@ -27,5 +27,5 @@
 			    :sports        #x2b5e5a
 			    :nation        #xe2d90b
 ; :world         #xcbca97
-			    :world         #xff4155)
+			    :world         #xea2c00)
   "Color values for cluster categories.")
